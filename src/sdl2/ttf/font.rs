@@ -17,6 +17,7 @@ use sys::SDL_Surface;
 
 bitflags! {
     /// The styling of a font.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
     pub struct FontStyle: i32 {
         const NORMAL        = ttf::TTF_STYLE_NORMAL as i32;
         const BOLD          = ttf::TTF_STYLE_BOLD as i32;
@@ -409,7 +410,7 @@ impl<'ttf, 'r> Font<'ttf, 'r> {
                 ttf::TTF_HINTING_NORMAL => Hinting::Normal,
                 ttf::TTF_HINTING_LIGHT => Hinting::Light,
                 ttf::TTF_HINTING_MONO => Hinting::Mono,
-                ttf::TTF_HINTING_NONE | _ => Hinting::None,
+                _ /* | ttf::TTF_HINTING_NONE */ => Hinting::None,
             }
         }
     }

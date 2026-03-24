@@ -1,7 +1,21 @@
 In this file will be listed the changes, especially the breaking ones that one should be careful of
 when upgrading from a version of rust-sdl2 to another.
 
-### Next
+### v0.39.0
+
+[PR #1413](https://github.com/Rust-SDL2/rust-sdl2/pull/1413) Deprecate `From` implementation of `SwapInterval` that could panic, add `TryFrom`-like inherent function.
+
+[PR #1507](https://github.com/Rust-SDL2/rust-sdl2/pull/1507) **BREAKING CHANGE** Add binding for `SDL_ComposeCustomBlendMode`. This should only be a breaking change for users relying on internal details of `BlendMode` and `SDL_BlendMode`.
+
+[PR #1510](https://github.com/Rust-SDL2/rust-sdl2/pull/1510) Fix clippy warnings.
+
+[PR #1509](https://github.com/Rust-SDL2/rust-sdl2/pull/1509) **BREAKING CHANGE** Add Send + 'static bounds for EventWatchCallback and 'static bound to AudioCallback to avoid soundness hole.
+
+[PR #1506](https://github.com/Rust-SDL2/rust-sdl2/pull/1506) **BREAKING CHANGE** Update crates.io dependencies, update bundled SDL2 to 2.32.10, add whitelist to bindgen to only emit SDL related items, and specifically no platform (or compiler, etc) specific items. Implement the same set of useful derived traits on bitflags types.
+
+### v0.38.0
+
+[PR #1493](https://github.com/Rust-SDL2/rust-sdl2/pull/1493) Add `Rect::origin` and specifies origin location in `Rect::new`.
 
 [PR #1472](https://github.com/Rust-SDL2/rust-sdl2/pull/1472) Add `Canvas::render_geometry`, `Canvas::render_geometry_raw` and an example that uses them both. Both these bindings use `SDL_RenderGeometryRaw`.
 
@@ -21,7 +35,7 @@ when upgrading from a version of rust-sdl2 to another.
 
 [PR #1451](https://github.com/Rust-SDL2/rust-sdl2/pull/1451) Add `gamma_ramp_arrays` and `calculate_gamma_ramp`.
 
-[PR #1459](https://github.com/Rust-SDL2/rust-sdl2/pull/1459) Fix image and mixer init flag logic
+[PR #1459](https://github.com/Rust-SDL2/rust-sdl2/pull/1459) **BREAKING CHANGE** Fix image and mixer init flag logic. `image::init` and `mixer::init` will now return an error if any of the requested formats can not be initialized.
 
 [PR #1444](https://github.com/Rust-SDL2/rust-sdl2/pull/1444) Add texture scale mode api + fix unsafe
 

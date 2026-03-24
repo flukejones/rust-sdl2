@@ -512,7 +512,7 @@ impl Drop for AudioSpecWAV {
     }
 }
 
-pub trait AudioCallback: Send
+pub trait AudioCallback: Send + 'static
 where
     Self::Channel: AudioFormatNum + 'static,
 {
@@ -1025,7 +1025,7 @@ impl<CB: AudioCallback> AudioDevice<CB> {
     /// called.
     /// Use this method to read and mutate callback data.
     #[doc(alias = "SDL_LockAudioDevice")]
-    pub fn lock(&mut self) -> AudioDeviceLockGuard<CB> {
+    pub fn lock(&mut self) -> AudioDeviceLockGuard<'_, CB> {
         unsafe { sys::SDL_LockAudioDevice(self.device_id.id()) };
         AudioDeviceLockGuard {
             device: self,

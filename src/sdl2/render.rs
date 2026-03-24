@@ -1,6 +1,6 @@
 //! 2D accelerated rendering
 //!
-//! Official C documentation: https://wiki.libsdl.org/CategoryRender
+//! Official C documentation: <https://wiki.libsdl.org/SDL2/CategoryRender>
 //! # Introduction
 //!
 //! This module contains functions for 2D accelerated rendering.
@@ -55,9 +55,9 @@ use std::rc::Rc;
 use std::slice;
 
 use crate::sys;
-use crate::sys::SDL_BlendMode;
-use crate::sys::SDL_ScaleMode;
-use crate::sys::SDL_TextureAccess;
+use crate::sys::{
+    SDL_BlendFactor, SDL_BlendMode, SDL_BlendOperation, SDL_ScaleMode, SDL_TextureAccess,
+};
 
 /// Contains the description of an error returned by SDL
 #[derive(Debug, Clone)]
@@ -133,49 +133,231 @@ pub struct RendererInfo {
 }
 
 /// Blend mode for `Canvas`, `Texture` or `Surface`.
-#[repr(i32)]
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub enum BlendMode {
-    /// no blending (replace destination with source).
-    None = SDL_BlendMode::SDL_BLENDMODE_NONE as i32,
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BlendMode(pub SDL_BlendMode);
+
+impl fmt::Debug for BlendMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("BlendMode").field(&self.0 .0).finish()
+    }
+}
+
+#[expect(non_upper_case_globals, reason = "deprecated constants")]
+impl BlendMode {
+    /// No blending (replace destination with source).
+    pub const NONE: Self = Self(SDL_BlendMode::SDL_BLENDMODE_NONE);
+    #[deprecated(
+        since = "0.39.0",
+        note = "use NONE instead, this used to be an enum member"
+    )]
+    pub const None: Self = Self::NONE;
+
     /// Alpha blending
     ///
     /// dstRGB = (srcRGB * srcA) + (dstRGB * (1-srcA))
     ///
     /// dstA = srcA + (dstA * (1-srcA))
-    Blend = SDL_BlendMode::SDL_BLENDMODE_BLEND as i32,
+    pub const BLEND: Self = Self(SDL_BlendMode::SDL_BLENDMODE_BLEND);
+    #[deprecated(
+        since = "0.39.0",
+        note = "use BLEND instead, this used to be an enum member"
+    )]
+    pub const Blend: Self = Self::BLEND;
+
     /// Additive blending
     ///
     /// dstRGB = (srcRGB * srcA) + dstRGB
     ///
     /// dstA = dstA (keep original alpha)
-    Add = SDL_BlendMode::SDL_BLENDMODE_ADD as i32,
+    pub const ADD: Self = Self(SDL_BlendMode::SDL_BLENDMODE_ADD);
+    #[deprecated(
+        since = "0.39.0",
+        note = "use ADD instead, this used to be an enum member"
+    )]
+    pub const Add: Self = Self::ADD;
+
     /// Color modulate
     ///
     /// dstRGB = srcRGB * dstRGB
-    Mod = SDL_BlendMode::SDL_BLENDMODE_MOD as i32,
+    pub const MOD: Self = Self(SDL_BlendMode::SDL_BLENDMODE_MOD);
+    #[deprecated(
+        since = "0.39.0",
+        note = "use MOD instead, this used to be an enum member"
+    )]
+    pub const Mod: Self = Self::MOD;
+
     /// Color multiply
-    Mul = SDL_BlendMode::SDL_BLENDMODE_MUL as i32,
+    pub const MUL: Self = Self(SDL_BlendMode::SDL_BLENDMODE_MUL);
+    #[deprecated(
+        since = "0.39.0",
+        note = "use MUL instead, this used to be an enum member"
+    )]
+    pub const Mul: Self = Self::MUL;
+
     /// Invalid blending mode (indicates error)
-    Invalid = SDL_BlendMode::SDL_BLENDMODE_INVALID as i32,
+    pub const INVALID: Self = Self(SDL_BlendMode::SDL_BLENDMODE_INVALID);
+    #[deprecated(
+        since = "0.39.0",
+        note = "use INVALID instead, this used to be an enum member"
+    )]
+    pub const Invalid: Self = Self::INVALID;
 }
 
-impl TryFrom<u32> for BlendMode {
-    type Error = ();
+macro_rules! enum_binding {
+    (
+        $(#[$meta:meta])*
+        pub enum $enum:ident = $sdl_enum:ident {$(
+            #[$($member_meta:meta)*]
+            $member:ident = $sdl_constant:ident,
+        )*}
+    ) => {
+        $(#[$meta])*
+        ///
+        #[doc = concat!("SDL C API type: [`", stringify!($sdl_enum), "`].")]
+        /// [`From`] implementations are provided to convert between this type and the C API type.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum $enum {$(
+            $member = $sdl_enum::$sdl_constant as isize,
+        )*}
 
-    fn try_from(n: u32) -> Result<Self, Self::Error> {
-        use self::BlendMode::*;
-        use crate::sys::SDL_BlendMode::*;
-
-        match n {
-            x if x == SDL_BLENDMODE_NONE as u32 => Ok(None),
-            x if x == SDL_BLENDMODE_BLEND as u32 => Ok(Blend),
-            x if x == SDL_BLENDMODE_ADD as u32 => Ok(Add),
-            x if x == SDL_BLENDMODE_MOD as u32 => Ok(Mod),
-            x if x == SDL_BLENDMODE_MUL as u32 => Ok(Mul),
-            x if x == SDL_BLENDMODE_INVALID as u32 => Ok(Invalid),
-            _ => Err(()),
+        impl From<$sdl_enum> for $enum {
+            fn from(value: $sdl_enum) -> Self {
+                match value {$(
+                    $sdl_enum::$sdl_constant => Self::$member,
+                )*}
+            }
         }
+
+        impl From<$enum> for $sdl_enum {
+            fn from(value: $enum) -> Self {
+                match value {$(
+                    $enum::$member => Self::$sdl_constant,
+                )*}
+            }
+        }
+    };
+}
+
+enum_binding! {
+    /// The blend operation used when combining source and destination pixel components.
+    pub enum BlendOperation = SDL_BlendOperation {
+        /// dst + src: supported by all renderers
+        Add = SDL_BLENDOPERATION_ADD,
+        /// dst - src: supported by D3D9, D3D11, OpenGL, OpenGLES
+        Subtract = SDL_BLENDOPERATION_SUBTRACT,
+        /// src - dst: supported by D3D9, D3D11, OpenGL, OpenGLES
+        RevSubtract = SDL_BLENDOPERATION_REV_SUBTRACT,
+        /// min(dst, src): supported by D3D9, D3D11
+        Minimum = SDL_BLENDOPERATION_MINIMUM,
+        /// max(dst, src): supported by D3D9, D3D11
+        Maximum = SDL_BLENDOPERATION_MAXIMUM,
+    }
+}
+
+enum_binding! {
+    /// The normalized factor used to multiply pixel components.
+    pub enum BlendFactor = SDL_BlendFactor {
+        /// 0, 0, 0, 0
+        Zero = SDL_BLENDFACTOR_ZERO,
+        /// 1, 1, 1, 1
+        One = SDL_BLENDFACTOR_ONE,
+        /// srcR, srcG, srcB, srcA
+        SrcColor = SDL_BLENDFACTOR_SRC_COLOR,
+        /// 1-srcR, 1-srcG, 1-srcB, 1-srcA
+        OneMinusSrcColor = SDL_BLENDFACTOR_ONE_MINUS_SRC_COLOR,
+        /// srcA, srcA, srcA, srcA
+        SrcAlpha = SDL_BLENDFACTOR_SRC_ALPHA,
+        /// 1-srcA, 1-srcA, 1-srcA, 1-srcA
+        OneMinusSrcAlpha = SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+        /// dstR, dstG, dstB, dstA
+        DstColor = SDL_BLENDFACTOR_DST_COLOR,
+        /// 1-dstR, 1-dstG, 1-dstB, 1-dstA
+        OneMinusDstColor = SDL_BLENDFACTOR_ONE_MINUS_DST_COLOR,
+        /// dstA, dstA, dstA, dstA
+        DstAlpha = SDL_BLENDFACTOR_DST_ALPHA,
+        /// 1-dstA, 1-dstA, 1-dstA, 1-dstA
+        OneMinusDstAlpha = SDL_BLENDFACTOR_ONE_MINUS_DST_ALPHA,
+    }
+}
+
+/// Arguments to [`SDL_ComposeCustomBlendMode`][sys::SDL_ComposeCustomBlendMode].
+///
+/// This struct implements [`Default`] with a blend mode equivalent to [`BlendMode::NONE`].
+/// Struct update syntax ([Rust Book][book-struct-update], [Rust Reference][reference-struct-update]) can be used to only change a few arguments.
+///
+/// See [`Self::compose`] for examples.
+///
+/// [book-struct-update]: https://doc.rust-lang.org/book/ch05-01-defining-structs.html#creating-instances-from-other-instances-with-struct-update-syntax
+/// [reference-struct-update]: https://doc.rust-lang.org/reference/expressions/struct-expr.html#functional-update-syntax
+#[derive(Debug, Clone, Copy)]
+pub struct CustomBlendMode {
+    pub src_color_factor: BlendFactor,
+    pub dst_color_factor: BlendFactor,
+    pub color_operation: BlendOperation,
+    pub src_alpha_factor: BlendFactor,
+    pub dst_alpha_factor: BlendFactor,
+    pub alpha_operation: BlendOperation,
+}
+
+impl Default for CustomBlendMode {
+    fn default() -> Self {
+        Self {
+            src_color_factor: BlendFactor::One,
+            dst_color_factor: BlendFactor::Zero,
+            color_operation: BlendOperation::Add,
+            src_alpha_factor: BlendFactor::One,
+            dst_alpha_factor: BlendFactor::Zero,
+            alpha_operation: BlendOperation::Add,
+        }
+    }
+}
+
+impl CustomBlendMode {
+    /// Compose a custom blend mode for renderers.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sdl2::render::{BlendFactor, BlendOperation, CustomBlendMode};
+    ///
+    /// let no_blending = CustomBlendMode {
+    ///     src_color_factor: BlendFactor::One,
+    ///     dst_color_factor: BlendFactor::Zero,
+    ///     color_operation: BlendOperation::Add,
+    ///     src_alpha_factor: BlendFactor::One,
+    ///     dst_alpha_factor: BlendFactor::Zero,
+    ///     alpha_operation: BlendOperation::Add,
+    /// }.compose();
+    ///
+    /// let ignore_alpha = CustomBlendMode {
+    ///     src_alpha_factor: BlendFactor::Zero,
+    ///     dst_alpha_factor: BlendFactor::One,
+    ///     ..Default::default()
+    /// }.compose();
+    /// ```
+    ///
+    /// See [`SDL_ComposeCustomBlendMode`][sys::SDL_ComposeCustomBlendMode].
+    #[doc(alias = "SDL_ComposeCustomBlendMode")]
+    pub fn compose(self) -> BlendMode {
+        let Self {
+            src_color_factor,
+            dst_color_factor,
+            color_operation,
+            src_alpha_factor,
+            dst_alpha_factor,
+            alpha_operation,
+        } = self;
+
+        BlendMode(unsafe {
+            sys::SDL_ComposeCustomBlendMode(
+                src_color_factor.into(),
+                dst_color_factor.into(),
+                color_operation.into(),
+                src_alpha_factor.into(),
+                dst_alpha_factor.into(),
+                alpha_operation.into(),
+            )
+        })
     }
 }
 
@@ -447,15 +629,15 @@ pub enum ClippingRect {
     None,
 }
 
-impl Into<ClippingRect> for Rect {
-    fn into(self) -> ClippingRect {
-        ClippingRect::Some(self)
+impl From<Rect> for ClippingRect {
+    fn from(val: Rect) -> Self {
+        ClippingRect::Some(val)
     }
 }
 
-impl Into<ClippingRect> for Option<Rect> {
-    fn into(self) -> ClippingRect {
-        match self {
+impl From<Option<Rect>> for ClippingRect {
+    fn from(val: Option<Rect>) -> Self {
+        match val {
             Some(v) => v.into(),
             None => ClippingRect::None,
         }
@@ -585,7 +767,7 @@ impl<T: RenderTarget> Canvas<T> {
     /// # Errors
     ///
     /// * returns `TargetRenderError::NotSupported`
-    /// if the renderer does not support the use of render targets
+    ///   if the renderer does not support the use of render targets
     /// * returns `TargetRenderError::SdlError` if SDL2 returned with an error code.
     ///
     /// The texture *must* be created with the texture access:
@@ -615,8 +797,6 @@ impl<T: RenderTarget> Canvas<T> {
     ///     texture_canvas.fill_rect(Rect::new(50, 50, 50, 50)).unwrap();
     /// });
     /// ```
-    ///
-
     pub fn with_texture_canvas<F>(
         &mut self,
         texture: &mut Texture,
@@ -785,12 +965,18 @@ impl CanvasBuilder {
 
     /// Builds the renderer.
     #[doc(alias = "SDL_CreateRenderer")]
-    pub fn build(self) -> Result<WindowCanvas, IntegerOrSdlError> {
+    pub fn build(mut self) -> Result<WindowCanvas, IntegerOrSdlError> {
         use crate::common::IntegerOrSdlError::*;
         let index = match self.index {
             None => -1,
             Some(index) => validate_int(index, "index")?,
         };
+        if self.window.has_surface() {
+            // If the window has a surface, we need to destroy it before creating a renderer.
+            self.window
+                .destroy_surface()
+                .map_err(IntegerOrSdlError::SdlError)?;
+        }
         let raw = unsafe { sys::SDL_CreateRenderer(self.window.raw(), index, self.renderer_flags) };
 
         if raw.is_null() {
@@ -938,7 +1124,7 @@ impl<T> TextureCreator<T> {
         access: TextureAccess,
         width: u32,
         height: u32,
-    ) -> Result<Texture, TextureValueError>
+    ) -> Result<Texture<'_>, TextureValueError>
     where
         F: Into<Option<PixelFormatEnum>>,
     {
@@ -959,7 +1145,7 @@ impl<T> TextureCreator<T> {
         format: F,
         width: u32,
         height: u32,
-    ) -> Result<Texture, TextureValueError>
+    ) -> Result<Texture<'_>, TextureValueError>
     where
         F: Into<Option<PixelFormatEnum>>,
     {
@@ -973,7 +1159,7 @@ impl<T> TextureCreator<T> {
         format: F,
         width: u32,
         height: u32,
-    ) -> Result<Texture, TextureValueError>
+    ) -> Result<Texture<'_>, TextureValueError>
     where
         F: Into<Option<PixelFormatEnum>>,
     {
@@ -987,7 +1173,7 @@ impl<T> TextureCreator<T> {
         format: F,
         width: u32,
         height: u32,
-    ) -> Result<Texture, TextureValueError>
+    ) -> Result<Texture<'_>, TextureValueError>
     where
         F: Into<Option<PixelFormatEnum>>,
     {
@@ -1028,7 +1214,7 @@ impl<T> TextureCreator<T> {
     pub fn create_texture_from_surface<S: AsRef<SurfaceRef>>(
         &self,
         surface: S,
-    ) -> Result<Texture, TextureValueError> {
+    ) -> Result<Texture<'_>, TextureValueError> {
         use self::TextureValueError::*;
         let result =
             unsafe { sys::SDL_CreateTextureFromSurface(self.context.raw, surface.as_ref().raw()) };
@@ -1042,7 +1228,7 @@ impl<T> TextureCreator<T> {
     /// Create a texture from its raw `SDL_Texture`.
     #[cfg(not(feature = "unsafe_textures"))]
     #[inline]
-    pub const unsafe fn raw_create_texture(&self, raw: *mut sys::SDL_Texture) -> Texture {
+    pub const unsafe fn raw_create_texture(&self, raw: *mut sys::SDL_Texture) -> Texture<'_> {
         Texture {
             raw,
             _marker: PhantomData,
@@ -1094,8 +1280,7 @@ impl<T: RenderTarget> Canvas<T> {
     /// Sets the blend mode used for drawing operations (Fill and Line).
     #[doc(alias = "SDL_SetRenderDrawBlendMode")]
     pub fn set_blend_mode(&mut self, blend: BlendMode) {
-        let ret =
-            unsafe { sys::SDL_SetRenderDrawBlendMode(self.context.raw, transmute(blend as u32)) };
+        let ret = unsafe { sys::SDL_SetRenderDrawBlendMode(self.context.raw, blend.0) };
         // Should only fail on an invalid renderer
         if ret != 0 {
             panic!("{}", get_error())
@@ -1111,8 +1296,7 @@ impl<T: RenderTarget> Canvas<T> {
         if ret != 0 {
             panic!("{}", get_error())
         } else {
-            let blend = unsafe { blend.assume_init() };
-            BlendMode::try_from(blend as u32).unwrap()
+            BlendMode(unsafe { blend.assume_init() })
         }
     }
 
@@ -1637,16 +1821,13 @@ impl<T: RenderTarget> Canvas<T> {
         R2: Into<Option<FRect>>,
         P: Into<Option<FPoint>>,
     {
-        use crate::sys::SDL_RendererFlip::*;
-        let flip = unsafe {
-            match (flip_horizontal, flip_vertical) {
-                (false, false) => SDL_FLIP_NONE,
-                (true, false) => SDL_FLIP_HORIZONTAL,
-                (false, true) => SDL_FLIP_VERTICAL,
-                (true, true) => transmute::<u32, sys::SDL_RendererFlip>(
-                    transmute::<sys::SDL_RendererFlip, u32>(SDL_FLIP_HORIZONTAL)
-                        | transmute::<sys::SDL_RendererFlip, u32>(SDL_FLIP_VERTICAL),
-                ),
+        let flip = match (flip_horizontal, flip_vertical) {
+            (false, false) => crate::sys::SDL_RendererFlip::SDL_FLIP_NONE,
+            (true, false) => crate::sys::SDL_RendererFlip::SDL_FLIP_HORIZONTAL,
+            (false, true) => crate::sys::SDL_RendererFlip::SDL_FLIP_VERTICAL,
+            (true, true) => {
+                crate::sys::SDL_RendererFlip::SDL_FLIP_HORIZONTAL
+                    | crate::sys::SDL_RendererFlip::SDL_FLIP_VERTICAL
             }
         };
 
@@ -1743,16 +1924,13 @@ impl<T: RenderTarget> Canvas<T> {
         R2: Into<Option<Rect>>,
         P: Into<Option<Point>>,
     {
-        use crate::sys::SDL_RendererFlip::*;
-        let flip = unsafe {
-            match (flip_horizontal, flip_vertical) {
-                (false, false) => SDL_FLIP_NONE,
-                (true, false) => SDL_FLIP_HORIZONTAL,
-                (false, true) => SDL_FLIP_VERTICAL,
-                (true, true) => transmute::<u32, sys::SDL_RendererFlip>(
-                    transmute::<sys::SDL_RendererFlip, u32>(SDL_FLIP_HORIZONTAL)
-                        | transmute::<sys::SDL_RendererFlip, u32>(SDL_FLIP_VERTICAL),
-                ),
+        let flip = match (flip_horizontal, flip_vertical) {
+            (false, false) => crate::sys::SDL_RendererFlip::SDL_FLIP_NONE,
+            (true, false) => crate::sys::SDL_RendererFlip::SDL_FLIP_HORIZONTAL,
+            (false, true) => crate::sys::SDL_RendererFlip::SDL_FLIP_VERTICAL,
+            (true, true) => {
+                crate::sys::SDL_RendererFlip::SDL_FLIP_HORIZONTAL
+                    | crate::sys::SDL_RendererFlip::SDL_FLIP_VERTICAL
             }
         };
 
@@ -2543,7 +2721,7 @@ impl InternalTexture {
 
     #[doc(alias = "SDL_SetTextureBlendMode")]
     pub fn set_blend_mode(&mut self, blend: BlendMode) {
-        let ret = unsafe { sys::SDL_SetTextureBlendMode(self.raw, transmute(blend as u32)) };
+        let ret = unsafe { sys::SDL_SetTextureBlendMode(self.raw, blend.0) };
 
         if ret != 0 {
             panic!("Error setting blend: {}", get_error())
@@ -2559,8 +2737,7 @@ impl InternalTexture {
         if ret != 0 {
             panic!("{}", get_error())
         } else {
-            let blend = unsafe { blend.assume_init() };
-            BlendMode::try_from(blend as u32).unwrap()
+            BlendMode(unsafe { blend.assume_init() })
         }
     }
 
@@ -2601,7 +2778,7 @@ impl InternalTexture {
                         return Err(HeightMustBeMultipleOfTwoForFormat(r.height(), format));
                     }
                 };
-                if pitch % 2 != 0 {
+                if !pitch.is_multiple_of(2) {
                     return Err(PitchMustBeMultipleOfTwoForFormat(pitch, format));
                 }
             }

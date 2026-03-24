@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::mem::transmute;
 use std::ptr;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use libc::c_int;
 use libc::c_void;
@@ -44,10 +44,8 @@ impl CustomEventTypeMaps {
     }
 }
 
-lazy_static! {
-    static ref CUSTOM_EVENT_TYPES: Mutex<CustomEventTypeMaps> =
-        Mutex::new(CustomEventTypeMaps::new());
-}
+static CUSTOM_EVENT_TYPES: LazyLock<Mutex<CustomEventTypeMaps>> =
+    LazyLock::new(|| Mutex::new(CustomEventTypeMaps::new()));
 
 impl crate::EventSubsystem {
     /// Removes all events in the event queue that match the specified event type.
@@ -246,10 +244,7 @@ impl crate::EventSubsystem {
     ///     dbg!(event);
     /// });
     /// ```
-    pub fn add_event_watch<'a, CB: EventWatchCallback + 'a>(
-        &self,
-        callback: CB,
-    ) -> EventWatch<'a, CB> {
+    pub fn add_event_watch<CB: EventWatchCallback>(&self, callback: CB) -> EventWatch<CB> {
         EventWatch::add(callback)
     }
 }
@@ -295,6 +290,7 @@ pub enum EventType {
     ControllerDeviceAdded = SDL_EventType::SDL_CONTROLLERDEVICEADDED as u32,
     ControllerDeviceRemoved = SDL_EventType::SDL_CONTROLLERDEVICEREMOVED as u32,
     ControllerDeviceRemapped = SDL_EventType::SDL_CONTROLLERDEVICEREMAPPED as u32,
+    ControllerSteamHandleUpdate = SDL_EventType::SDL_CONTROLLERSTEAMHANDLEUPDATED as u32,
     ControllerTouchpadDown = SDL_EventType::SDL_CONTROLLERTOUCHPADDOWN as u32,
     ControllerTouchpadMotion = SDL_EventType::SDL_CONTROLLERTOUCHPADMOTION as u32,
     ControllerTouchpadUp = SDL_EventType::SDL_CONTROLLERTOUCHPADUP as u32,
@@ -411,6 +407,7 @@ pub enum DisplayEvent {
     Orientation(Orientation),
     Connected,
     Disconnected,
+    Moved,
 }
 
 impl DisplayEvent {
@@ -433,6 +430,7 @@ impl DisplayEvent {
             }
             sys::SDL_DisplayEventID::SDL_DISPLAYEVENT_CONNECTED => DisplayEvent::Connected,
             sys::SDL_DisplayEventID::SDL_DISPLAYEVENT_DISCONNECTED => DisplayEvent::Disconnected,
+            sys::SDL_DisplayEventID::SDL_DISPLAYEVENT_MOVED => DisplayEvent::Moved,
         }
     }
 
@@ -450,6 +448,7 @@ impl DisplayEvent {
                 sys::SDL_DisplayEventID::SDL_DISPLAYEVENT_DISCONNECTED as u8,
                 0,
             ),
+            DisplayEvent::Moved => (sys::SDL_DisplayEventID::SDL_DISPLAYEVENT_MOVED as u8, 0),
         }
     }
 
@@ -735,6 +734,11 @@ pub enum Event {
         which: u32,
     },
     ControllerDeviceRemapped {
+        timestamp: u32,
+        /// The controller's joystick `id`
+        which: u32,
+    },
+    ControllerSteamHandleUpdate {
         timestamp: u32,
         /// The controller's joystick `id`
         which: u32,
@@ -1464,6 +1468,22 @@ impl Event {
                 }
             }
 
+            Event::ControllerSteamHandleUpdate { timestamp, which } => {
+                let event = sys::SDL_ControllerDeviceEvent {
+                    type_: SDL_EventType::SDL_CONTROLLERSTEAMHANDLEUPDATED as u32,
+                    timestamp,
+                    which: which as i32,
+                };
+                unsafe {
+                    ptr::copy(
+                        &event,
+                        ret.as_mut_ptr() as *mut sys::SDL_ControllerDeviceEvent,
+                        1,
+                    );
+                    Some(ret.assume_init())
+                }
+            }
+
             Event::FingerDown { .. }
             | Event::FingerUp { .. }
             | Event::FingerMotion { .. }
@@ -1780,6 +1800,13 @@ impl Event {
                 EventType::ControllerDeviceRemapped => {
                     let event = raw.cdevice;
                     Event::ControllerDeviceRemapped {
+                        timestamp: event.timestamp,
+                        which: event.which as u32,
+                    }
+                }
+                EventType::ControllerSteamHandleUpdate => {
+                    let event = raw.cdevice;
+                    Event::ControllerSteamHandleUpdate {
                         timestamp: event.timestamp,
                         which: event.which as u32,
                     }
@@ -2101,6 +2128,10 @@ impl Event {
             | (Self::ControllerDeviceAdded { .. }, Self::ControllerDeviceAdded { .. })
             | (Self::ControllerDeviceRemoved { .. }, Self::ControllerDeviceRemoved { .. })
             | (Self::ControllerDeviceRemapped { .. }, Self::ControllerDeviceRemapped { .. })
+            | (
+                Self::ControllerSteamHandleUpdate { .. },
+                Self::ControllerSteamHandleUpdate { .. },
+            )
             | (Self::FingerDown { .. }, Self::FingerDown { .. })
             | (Self::FingerUp { .. }, Self::FingerUp { .. })
             | (Self::FingerMotion { .. }, Self::FingerMotion { .. })
@@ -2170,6 +2201,7 @@ impl Event {
             Self::ControllerDeviceAdded { timestamp, .. } => timestamp,
             Self::ControllerDeviceRemoved { timestamp, .. } => timestamp,
             Self::ControllerDeviceRemapped { timestamp, .. } => timestamp,
+            Self::ControllerSteamHandleUpdate { timestamp, .. } => timestamp,
             Self::ControllerTouchpadDown { timestamp, .. } => timestamp,
             Self::ControllerTouchpadMotion { timestamp, .. } => timestamp,
             Self::ControllerTouchpadUp { timestamp, .. } => timestamp,
@@ -2413,6 +2445,7 @@ impl Event {
                 | Self::ControllerDeviceAdded { .. }
                 | Self::ControllerDeviceRemoved { .. }
                 | Self::ControllerDeviceRemapped { .. }
+                | Self::ControllerSteamHandleUpdate { .. }
         )
     }
 
@@ -2735,7 +2768,7 @@ impl crate::EventPump {
     ///     }
     /// }
     /// ```
-    pub fn poll_iter(&mut self) -> EventPollIterator {
+    pub fn poll_iter(&mut self) -> EventPollIterator<'_> {
         EventPollIterator {
             _marker: PhantomData,
         }
@@ -2762,7 +2795,7 @@ impl crate::EventPump {
     /// Returns a waiting iterator that calls `wait_event()`.
     ///
     /// Note: The iterator will never terminate.
-    pub fn wait_iter(&mut self) -> EventWaitIterator {
+    pub fn wait_iter(&mut self) -> EventWaitIterator<'_> {
         EventWaitIterator {
             _marker: PhantomData,
         }
@@ -2772,7 +2805,7 @@ impl crate::EventPump {
     ///
     /// Note: The iterator will never terminate, unless waiting for an event
     /// exceeds the specified timeout.
-    pub fn wait_timeout_iter(&mut self, timeout: u32) -> EventWaitTimeoutIterator {
+    pub fn wait_timeout_iter(&mut self, timeout: u32) -> EventWaitTimeoutIterator<'_> {
         EventWaitTimeoutIterator {
             _marker: PhantomData,
             timeout,
@@ -2780,7 +2813,7 @@ impl crate::EventPump {
     }
 
     #[inline]
-    pub fn keyboard_state(&self) -> crate::keyboard::KeyboardState {
+    pub fn keyboard_state(&self) -> crate::keyboard::KeyboardState<'_> {
         crate::keyboard::KeyboardState::new(self)
     }
 
@@ -2917,26 +2950,24 @@ impl EventSender {
 }
 
 /// A callback trait for [`EventSubsystem::add_event_watch`].
-pub trait EventWatchCallback {
+pub trait EventWatchCallback: Send + 'static {
     fn callback(&mut self, event: Event);
 }
 
 /// An handler for the event watch callback.
 /// One must bind this struct in a variable as long as you want to keep the callback active.
 /// For further information, see [`EventSubsystem::add_event_watch`].
-pub struct EventWatch<'a, CB: EventWatchCallback + 'a> {
+pub struct EventWatch<CB: EventWatchCallback> {
     activated: bool,
     callback: Box<CB>,
-    _phantom: PhantomData<&'a CB>,
 }
 
-impl<'a, CB: EventWatchCallback + 'a> EventWatch<'a, CB> {
-    fn add(callback: CB) -> EventWatch<'a, CB> {
+impl<CB: EventWatchCallback> EventWatch<CB> {
+    fn add(callback: CB) -> EventWatch<CB> {
         let f = Box::new(callback);
         let mut watch = EventWatch {
             activated: false,
             callback: f,
-            _phantom: PhantomData,
         };
         watch.activate();
         watch
@@ -2983,7 +3014,7 @@ impl<'a, CB: EventWatchCallback + 'a> EventWatch<'a, CB> {
     }
 }
 
-impl<'a, CB: EventWatchCallback + 'a> Drop for EventWatch<'a, CB> {
+impl<CB: EventWatchCallback> Drop for EventWatch<CB> {
     fn drop(&mut self) {
         self.deactivate();
     }
@@ -2999,7 +3030,7 @@ extern "C" fn event_callback_marshall<CB: EventWatchCallback>(
     0
 }
 
-impl<F: FnMut(Event)> EventWatchCallback for F {
+impl<F: FnMut(Event) + Send + 'static> EventWatchCallback for F {
     fn callback(&mut self, event: Event) {
         self(event)
     }
